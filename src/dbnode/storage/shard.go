@@ -65,6 +65,7 @@ import (
 const (
 	shardIterateBatchPercent = 0.01
 	shardIterateBatchMinSize = 16
+	_serviceNameTag          = "service-name"
 )
 
 var (
@@ -167,11 +168,13 @@ type dbShardRuntimeOptions struct {
 }
 
 type dbShardMetrics struct {
+	scope                               tally.Scope
 	create                              tally.Counter
 	close                               tally.Counter
 	closeStart                          tally.Counter
 	closeLatency                        tally.Timer
 	seriesTicked                        tally.Gauge
+	seriesByServiceTicked               map[string]tally.Gauge
 	insertAsyncInsertErrors             tally.Counter
 	insertAsyncWriteInternalErrors      tally.Counter
 	insertAsyncWriteInvalidParamsErrors tally.Counter
@@ -191,6 +194,7 @@ func newDatabaseShardMetrics(shardID uint32, scope tally.Scope) dbShardMetrics {
 	const insertErrorName = "insert-async.errors"
 	snapshotScope := scope.SubScope("snapshot")
 	return dbShardMetrics{
+		scope:        scope,
 		create:       scope.Counter("create"),
 		close:        scope.Counter("close"),
 		closeStart:   scope.Counter("close-start"),
@@ -198,6 +202,7 @@ func newDatabaseShardMetrics(shardID uint32, scope tally.Scope) dbShardMetrics {
 		seriesTicked: scope.Tagged(map[string]string{
 			"shard": fmt.Sprintf("%d", shardID),
 		}).Gauge("series-ticked"),
+		seriesByServiceTicked: make(map[string]tally.Gauge),
 		insertAsyncInsertErrors: scope.Tagged(map[string]string{
 			"error_type":    "insert-series",
 			"suberror_type": "shard-entry-insert-error",
@@ -707,7 +712,11 @@ func (s *dbShard) tickAndExpire(
 		s.ticking = false
 		s.tickWg.Done()
 		s.Unlock()
-		s.metrics.seriesTicked.Update(0.0) // reset external visibility
+		// reset external visibility
+		s.metrics.seriesTicked.Update(0.0)
+		for _, gauge := range s.metrics.seriesByServiceTicked {
+			gauge.Update(0.0)
+		}
 	}()
 
 	var (
@@ -747,6 +756,16 @@ func (s *dbShard) tickAndExpire(
 				if policy != tickPolicyCloseShard && s.isClosing() {
 					terminatedTickingDueToClosing = true
 					return false
+				}
+				serviceName, found := entry.Series.Metadata().Get([]byte(_serviceNameTag))
+				if found {
+					if gauge, ok := s.metrics.seriesByServiceTicked[string(serviceName)]; ok {
+						gauge.Update(float64(i))
+					} else {
+						serviceGauge := s.metrics.scope.Gauge("series-ticked-by-service")
+						serviceGauge.Update(float64(i))
+						s.metrics.seriesByServiceTicked[string(serviceName)] = serviceGauge
+					}
 				}
 				// Expose shard level Tick() progress externally.
 				s.metrics.seriesTicked.Update(float64(i))
