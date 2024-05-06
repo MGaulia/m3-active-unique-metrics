@@ -201,6 +201,7 @@ type databaseNamespaceShardMetrics struct {
 
 type databaseNamespaceTickMetrics struct {
 	activeSeries           tally.Gauge
+	activeServiceSeries    map[string]tally.Gauge
 	expiredSeries          tally.Counter
 	activeBlocks           tally.Gauge
 	wiredBlocks            tally.Gauge
@@ -277,6 +278,7 @@ func newDatabaseNamespaceMetrics(
 		},
 		tick: databaseNamespaceTickMetrics{
 			activeSeries:           tickScope.Gauge("active-series"),
+			activeServiceSeries:    make(map[string]tally.Gauge),
 			expiredSeries:          tickScope.Counter("expired-series"),
 			activeBlocks:           tickScope.Gauge("active-blocks"),
 			wiredBlocks:            tickScope.Gauge("wired-blocks"),
@@ -680,6 +682,9 @@ func (n *dbNamespace) Tick(c context.Cancellable, startTime xtime.UnixNano) erro
 	}
 	n.statsLastTick.Unlock()
 
+	for service, counter := range r.serviceCounter {
+		n.metrics.tick.activeServiceSeries[service].Update(float64(counter))
+	}
 	n.metrics.tick.activeSeries.Update(float64(r.activeSeries))
 	n.metrics.tick.expiredSeries.Inc(int64(r.expiredSeries))
 	n.metrics.tick.activeBlocks.Update(float64(r.activeBlocks))

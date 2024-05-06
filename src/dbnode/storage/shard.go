@@ -789,6 +789,10 @@ func (s *dbShard) tickAndExpire(
 				expired = append(expired, entry)
 				r.expiredSeries++
 			} else {
+				service, found := entry.Series.Metadata().Get([]byte("service-name"))
+				if found {
+					r.serviceCounter[string(service)]++
+				}
 				r.activeSeries++
 				if err != nil {
 					r.errors++

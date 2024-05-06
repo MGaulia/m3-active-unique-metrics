@@ -32,6 +32,7 @@ type tickResult struct {
 	mergedOutOfOrderBlocks int
 	errors                 int
 	evictedBuckets         int
+	serviceCounter         map[string]int
 }
 
 func (r tickResult) merge(other tickResult) tickResult {
@@ -47,5 +48,14 @@ func (r tickResult) merge(other tickResult) tickResult {
 		mergedOutOfOrderBlocks: r.mergedOutOfOrderBlocks + other.mergedOutOfOrderBlocks,
 		errors:                 r.errors + other.errors,
 		evictedBuckets:         r.evictedBuckets + other.evictedBuckets,
+		serviceCounter:         mergeCounterMaps(r.serviceCounter, other.serviceCounter),
 	}
+}
+
+func mergeCounterMaps(a map[string]int, b map[string]int) map[string]int {
+	// keys might be different in both maps
+	for k, v := range b {
+		a[k] += v
+	}
+	return a
 }
